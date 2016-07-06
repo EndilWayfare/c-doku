@@ -46,6 +46,10 @@ int main(int argc, char* argv[])
      initializeSudokuBoard(&board);
      initializeString(&commandInput.string);
 
+     puts("========== Sudoku Game ==========");
+     puts(showAllCommandsPrompt);
+     putchar('\n');
+
      // if one argument was provided, go ahead and load sudoku board from textfile
      if (argc > 1)
      {
@@ -54,9 +58,6 @@ int main(int argc, char* argv[])
           loadSudokuBoard(argv[1], &board);
      }
 
-     puts("========== Sudoku Game ==========");
-     puts(showAllCommandsPrompt);
-     putchar('\n');
      printSudokuBoard(&board);
 
      while (running)

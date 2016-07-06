@@ -1,3 +1,6 @@
+# ENDIL: exclude Visual Studio solution directory
+c-dokuVS
+
 # Object files
 *.o
 *.ko
