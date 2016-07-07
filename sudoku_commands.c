@@ -20,8 +20,8 @@
 #include "sudoku_help.h"
 
 
-#define IS_ANY_INPUT_REMAINING(inputPtr) input->currentIndex + 1 < input->string.length
-#define GET_CHAR_FROM_INPUT_STRING(inputPtr, loopVar) inputPtr->string.array[loopVar + inputPtr->currentIndex]
+#define IS_ANY_INPUT_REMAINING(inputPtr) ((inputPtr)->currentIndex + 1 < (inputPtr)->string.length)
+#define PEEK_CHAR_FROM_INPUT_STRING_AT_INDEX(inputPtr, index) ((inputPtr)->string.array[index])
 
 
 // Forward declarations, so function names are visible for definition of 'commands' array
@@ -454,7 +454,20 @@ SudokuCommandResult commandCommands(SudokuBoard * board, SudokuCommandInput * in
      return SUDOKU_COMMAND_SUCCESS;
 }
 
-bool getStringArgument(SudokuCommandInput * input, char * argument, size_t maxLength)
+inline char getCharFromInputString(SudokuCommandInput *input)
+{
+     char ch = PEEK_CHAR_FROM_INPUT_STRING_AT_INDEX(input, input->currentIndex);
+     
+     if (ch)
+     {
+          // Only increment current index if received char is not null
+          ++(input->currentIndex);
+     }
+
+     return ch;
+}
+
+bool validateCommandInputStartStatus(SudokuCommandInput *input)
 {
      bool status = true;
      
@@ -463,52 +476,11 @@ bool getStringArgument(SudokuCommandInput * input, char * argument, size_t maxLe
           // if the string's array is not NULL and it contains characters
           if (input->string.array && input->string.length > 0)
           {
-               // maxLength gets 1 subtracted from it in the loop (to leave room for null-terminator)
-               // this will cause unsigned overflow it maxLength == 0
-               if (maxLength > 0)
+               // if there no more input to read
+               if (!IS_ANY_INPUT_REMAINING(input))
                {
-                    // if there is still input to read
-                    if (IS_ANY_INPUT_REMAINING(input))
-                    {
-                         size_t i; // for comparison with maxLength, i should be unsigned type
-                         int ch;
-
-                         for (i = 0, ch = GET_CHAR_FROM_INPUT_STRING(input, i);
-                              i < maxLength - 1 && ch != 0 && !isspace(ch);
-                              ++i, ch = GET_CHAR_FROM_INPUT_STRING(input, i))
-                         {
-                              argument[i] = ch;
-                         }
-
-                         // null-terminate the argument
-                         argument[i] = 0;
-
-                         // skip to the end of current argument
-                         while (!isspace(ch) && ch != 0)
-                         {
-                              ++i;
-                              ch = input->string.array[i + input->currentIndex];
-                         }
-
-                         // skip the whitespace until next argument
-                         while (isspace(ch))
-                         {
-                              ++i;
-                              ch = input->string.array[i + input->currentIndex];
-                         }
-
-                         // i + currentIndex is now positioned over the next valid character of
-                         // input from the input string.
-                         input->currentIndex += i;
-                    }
-                    else
-                    {
-                         status = false;
-                    }
-               }
-               else
-               {
-                    terminate("ERROR: tried to get string argument with a maxLength of 0");
+                    // 'input' cannot be read from, because there are no more chars remaining
+                    status = false;
                }
           }
           else
@@ -524,65 +496,98 @@ bool getStringArgument(SudokuCommandInput * input, char * argument, size_t maxLe
      return status;
 }
 
+void seekToNextArgument(SudokuCommandInput *input, bool discardRestOfCurrentArgument)
+{
+     int startIndex = input->currentIndex;
+     
+     // start with char right before currentIndex if discardRestOfCurrentArgument is true.
+     // this checks if currentIndex is already the start of a new argument or not
+     if (discardRestOfCurrentArgument && input->currentIndex != 0)
+     {
+          startIndex = input->currentIndex - 1;
+     }
+
+     char ch = PEEK_CHAR_FROM_INPUT_STRING_AT_INDEX(input, startIndex);
+     
+     // skip to the end of current argument, if any non-space characters remain
+     while (discardRestOfCurrentArgument &&
+            !isspace(ch) && ch != 0)
+     {
+          ch = getCharFromInputString(input);
+     }
+
+     // skip the whitespace until next argument
+     while (isspace(ch))
+     {
+          ch = getCharFromInputString(input);
+     }
+
+     // if final char fetched is a valid input char, put it "back" into the input string
+     if (discardRestOfCurrentArgument && !isspace(ch))
+     {
+          --(input->currentIndex);
+     }
+}
+
+bool getStringArgument(SudokuCommandInput * input, char * argument, size_t maxLength)
+{
+     bool status = true;
+     
+     // maxLength gets 1 subtracted from it in the loop (to leave room for null-terminator)
+     // this will cause unsigned overflow it maxLength == 0
+     if (maxLength > 0 && validateCommandInputStartStatus(input))
+     {
+          size_t i = 0; // for comparison with maxLength, i should be unsigned type
+          char ch;
+
+          // Compare i with one less than maxLength to allow room for null terminator
+          while (i < maxLength - 1 &&
+                 (ch = getCharFromInputString(input)) && 
+                 !isspace(ch))
+          {
+               argument[i++] = ch;
+          }
+
+          // null-terminate the argument
+          argument[i] = 0;
+
+          seekToNextArgument(input, true);
+     }
+     else
+     {
+          status = false;
+     }
+
+     return status;
+}
+
 bool getUnsignedArgument(SudokuCommandInput * input, unsigned * argument)
 {
      bool status = true;
      
-     if (input)
+     if (validateCommandInputStartStatus(input))
      {
-          // if the string's array is not NULL and it contains characters
-          if (input->string.array && input->string.length > 0)
+          String numberCharacters = { 0 };
+          initializeString(&numberCharacters);
+
+          int ch;
+
+          while ((ch = getCharFromInputString(input)) && !isspace(ch) && isdigit(ch))
           {
-               // if there is still input to read
-               if (IS_ANY_INPUT_REMAINING(input))
-               {
-                    String numberCharacters = { 0 };
-                    initializeString(&numberCharacters);
-                    
-                    size_t i; // for comparison with maxLength, i should be unsigned type
-                    int ch;
-
-                    for (i = 0, ch = GET_CHAR_FROM_INPUT_STRING(input, i);
-                         ch != 0 && !isspace(ch);
-                         ++i, ch = GET_CHAR_FROM_INPUT_STRING(input, i))
-                    {
-                         // get only digits from the argument
-                         if (isdigit(ch))
-                         {
-                              addCharToString(&numberCharacters, ch);
-                         }
-                    }
-
-                    // skip the whitespace until next argument
-                    while (isspace(ch))
-                    {
-                         ++i;
-                         ch = input->string.array[i + input->currentIndex];
-                    }
-
-                    // i + currentIndex is now positioned over the next valid character of
-                    // input from the input string.
-                    input->currentIndex += i;
-
-                    // convert the digit characters read into numeric form
-                    // because we read only digits, number should never be negative
-                    *argument = (unsigned)atoi(numberCharacters.array);
-
-                    // NOTE: if conversion fails, *argument == 0
-               }
-               else
-               {
-                    status = false;
-               }
+               addCharToString(&numberCharacters, ch);
           }
-          else
-          {
-               terminate("ERROR: tried to get unsigned argument from an invalid String");
-          }
+
+          // convert the digit characters read into numeric form
+          // because we read only digits, number should never be negative
+          *argument = (unsigned)atoi(numberCharacters.array);
+
+          // NOTE: if conversion fails, *argument == 0
+
+          seekToNextArgument(input, true);
      }
      else
      {
-          terminate("ERROR: tried to get unsigned argument from a null SudokuCommandInput");
+          status = false;
      }
 
      return status;
@@ -595,51 +600,23 @@ bool getColumnArgument(SudokuCommandInput * input, char *argument)
 {
      bool status = true;
      
-     if (input)
+     
+     if (validateCommandInputStartStatus(input))
      {
-          // if the string's array is not NULL and it contains characters
-          if (input->string.array && input->string.length > 0)
-          {
-               // if there is still input to read
-               if (IS_ANY_INPUT_REMAINING(input))
-               {
-                    int i = 0;
+          *argument = getCharFromInputString(input);
 
-                    *argument = GET_CHAR_FROM_INPUT_STRING(input, i);
-                    ++i;
+          // turn ASCII code into integer value
+          *argument = SUDOKU_COL_LETTER_TO_INDEX(*argument);
 
-                    // skip the whitespace until next argument, if any exists
-                    while (isspace(GET_CHAR_FROM_INPUT_STRING(input, i)))
-                    {
-                         ++i;
-                    }
+          // is argument in range [0, 8] (inclusive)?
+          status = validateColIndex(*argument);
 
-                    // i + currentIndex is now positioned over the next valid character of
-                    // input from the input string.
-                    input->currentIndex += i;
-
-                    // input read successfully, now validate it
-
-                    // turn ASCII code into integer value
-                    *argument = SUDOKU_COL_LETTER_TO_INDEX(*argument);
-
-                    // is argument in range [0, 8] (inclusive)?
-                    status = validateColIndex(*argument);
-               }
-               else
-               {
-                    puts("No argument provided for column letter");
-                    status = false;
-               }
-          }
-          else
-          {
-               terminate("ERROR: tried to get column argument from an invalid String");
-          }
+          seekToNextArgument(input, false);
      }
      else
      {
-          terminate("ERROR: tried to get column argument from a null SudokuCommandInput");
+          puts("No argument provided for column letter");
+          status = false;
      }
 
      return status;
@@ -649,51 +626,22 @@ bool getRowArgument(SudokuCommandInput * input, char * argument)
 {
      bool status = true;
 
-     if (input)
+     if (validateCommandInputStartStatus(input))
      {
-          // if the string's array is not NULL and it contains characters
-          if (input->string.array && input->string.length > 0)
-          {
-               // if there is still input to read
-               if (IS_ANY_INPUT_REMAINING(input))
-               {
-                    int i = 0;
+          *argument = getCharFromInputString(input);
 
-                    *argument = GET_CHAR_FROM_INPUT_STRING(input, i);
-                    ++i;
+          // turn ASCII code into integer value
+          *argument = SUDOKU_ROW_NUMBER_TO_INDEX(*argument);
 
-                    // skip the whitespace until next argument, if any exists
-                    while (isspace(GET_CHAR_FROM_INPUT_STRING(input, i)))
-                    {
-                         ++i;
-                    }
+          // is argument inside range [0, 8] (inclusive)?
+          status = validateRowIndex(*argument);
 
-                    // i + currentIndex is now positioned over the next valid character of
-                    // input from the input string.
-                    input->currentIndex += i;
-
-                    // input read successfully, now validate it
-
-                    // turn ASCII code into integer value
-                    *argument = SUDOKU_ROW_NUMBER_TO_INDEX(*argument);
-
-                    // is argument inside range [0, 8] (inclusive)?
-                    status = validateRowIndex(*argument);
-               }
-               else
-               {
-                    puts("No argument provided for row number");
-                    status = false;
-               }
-          }
-          else
-          {
-               terminate("ERROR: tried to get row argument from an invalid String");
-          }
+          seekToNextArgument(input, false);
      }
      else
      {
-          terminate("ERROR: tried to get row argument from a null SudokuCommandInput");
+          puts("No argument provided for row number");
+          status = false;
      }
 
      return status;
@@ -703,51 +651,22 @@ bool getSudokuDigitArgument(SudokuCommandInput * input, char * argument)
 {
      bool status = true;
 
-     if (input)
+     if (validateCommandInputStartStatus(input))
      {
-          // if the string's array is not NULL and it contains characters
-          if (input->string.array && input->string.length > 0)
-          {
-               // if there is still input to read
-               if (IS_ANY_INPUT_REMAINING(input))
-               {
-                    int i = 0;
+          *argument = getCharFromInputString(input);
 
-                    *argument = GET_CHAR_FROM_INPUT_STRING(input, i);
-                    ++i;
+          // turn ASCII code into integer value
+          *argument = SUDOKU_DIGIT_CHAR_TO_VALUE(*argument);
 
-                    // skip the whitespace until next argument, if any exists
-                    while (isspace(GET_CHAR_FROM_INPUT_STRING(input, i)))
-                    {
-                         ++i;
-                    }
+          // is argument in range [0, 9] (inclusive)?
+          status = validateSudokuDigit(*argument);
 
-                    // i + currentIndex is now positioned over the next valid character of
-                    // input from the input string.
-                    input->currentIndex += i;
-
-                    // input read successfully, now validate it
-
-                    // turn ASCII code into integer value
-                    *argument = SUDOKU_DIGIT_CHAR_TO_VALUE(*argument);
-
-                    // is argument in range [0, 9] (inclusive)?
-                    status = validateSudokuDigit(*argument);
-               }
-               else
-               {
-                    puts("No argument provided for new sudoku digit");
-                    status = false;
-               }
-          }
-          else
-          {
-               terminate("ERROR: tried to get sudoku digit argument from an invalid String");
-          }
+          seekToNextArgument(input, false);
      }
      else
      {
-          terminate("ERROR: tried to get sudoku digit argument from a null SudokuCommandInput");
+          puts("No argument provided for new sudoku digit");
+          status = false;
      }
 
      return status;

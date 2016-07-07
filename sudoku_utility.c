@@ -374,6 +374,9 @@ int readString(struct String * string)
           ungetc(ch, stdin);
      }
 
+     // null-termnate the string
+     addCharToString(string, 0);
+
      // return number of chars added to string 
      return charsAdded;
 }
